@@ -8,8 +8,8 @@ import (
 )
 
 func TestSimple(t *testing.T) {
-	os.Remove("testing.bin")
-	m := New("testing.bin")
+	os.Remove("testing.8sm")
+	m := New("testing.8sm")
 
 	var x = int64(-1)
 	for _, k := range []uint64{1, 42, 0, uint64(x)} {
@@ -98,7 +98,7 @@ func TestSimple(t *testing.T) {
 		t.Fatal("found v[2]=", vals[1], " != 20 after committing")
 	}
 
-	m2 := New("testing.bin")
+	m2 := New("testing.8sm")
 	vals, found = m2.Get(1)
 	if !found {
 		t.Fatal("did not find 1 after reopening")
@@ -116,12 +116,12 @@ func TestSimple(t *testing.T) {
 		t.Fatal("found v[2]=", vals[1], " != 20 after reopening")
 	}
 
-	os.Remove("testing.bin")
+	os.Remove("testing.8sm")
 }
 
 func TestFibo(t *testing.T) {
-	os.Remove("fibo_testing.bin")
-	m := New("fibo_testing.bin")
+	os.Remove("fibo_testing.8sm")
+	m := New("fibo_testing.8sm")
 	mm := m.Mutate()
 
 	fibs := []uint64{
@@ -171,7 +171,7 @@ func TestFibo(t *testing.T) {
 		log.Println(err)
 		t.Fatal("unable to commit unpacked changes")
 	}
-	info, err := os.Stat("fibo_testing.bin")
+	info, err := os.Stat("fibo_testing.8sm")
 	if err != nil {
 		log.Println(err)
 		t.Fatal("unable to stat committed file")
@@ -183,7 +183,7 @@ func TestFibo(t *testing.T) {
 		log.Println(err)
 		t.Fatal("unable to commit packed changes")
 	}
-	info, err = os.Stat("fibo_testing.bin")
+	info, err = os.Stat("fibo_testing.8sm")
 	if err != nil {
 		log.Println(err)
 		t.Fatal("unable to stat committed file")
@@ -242,7 +242,7 @@ func TestFibo(t *testing.T) {
 		log.Println(err)
 		t.Fatal("unable to commit unpacked changes (round2)")
 	}
-	info, err = os.Stat("fibo_testing.bin")
+	info, err = os.Stat("fibo_testing.8sm")
 	if err != nil {
 		log.Println(err)
 		t.Fatal("unable to stat committed file (round2)")
@@ -254,7 +254,7 @@ func TestFibo(t *testing.T) {
 		log.Println(err)
 		t.Fatal("unable to commit packed changes (round2)")
 	}
-	info, err = os.Stat("fibo_testing.bin")
+	info, err = os.Stat("fibo_testing.8sm")
 	if err != nil {
 		log.Println(err)
 		t.Fatal("unable to stat committed file (round2)")
@@ -265,7 +265,7 @@ func TestFibo(t *testing.T) {
 	}
 
 	////////////////
-	m2 := NewShifted("fibo_testing.bin", 1)
+	m2 := NewShifted("fibo_testing.8sm", 1)
 	for _, f := range fibs {
 		vals, found := m2.Get(f)
 		if !found {
@@ -287,8 +287,8 @@ func TestFibo(t *testing.T) {
 }
 
 func TestInplace(t *testing.T) {
-	os.Remove("inplace_testing.bin")
-	m := New("inplace_testing.bin")
+	os.Remove("inplace_testing.8sm")
+	m := New("inplace_testing.8sm")
 	mm := m.Mutate()
 
 	justUnder := int(FillFactor) - 1
@@ -328,15 +328,15 @@ func TestInplace(t *testing.T) {
 			t.Fatalf("found %d != %d values in set for key %d", len(vals), justUnder, k)
 		}
 	}
-	info, err := os.Stat("inplace_testing.bin")
+	info, err := os.Stat("inplace_testing.8sm")
 	if err != nil {
-		t.Fatal("unable to stat inplace_testing.bin", err.Error())
+		t.Fatal("unable to stat inplace_testing.8sm", err.Error())
 	}
 	sz := info.Size()
 
 	/////////
 	// open a new instance and add 3 values. filesize should stay the same
-	m = New("inplace_testing.bin")
+	m = New("inplace_testing.8sm")
 	mm = m.Mutate()
 
 	toadd := 1 + int(DefaultCapacity-FillFactor)/2
@@ -393,9 +393,9 @@ func TestInplace(t *testing.T) {
 	}
 	k4size := len(vals)
 
-	info, err = os.Stat("inplace_testing.bin")
+	info, err = os.Stat("inplace_testing.8sm")
 	if err != nil {
-		t.Fatal("unable to stat inplace_testing.bin", err.Error())
+		t.Fatal("unable to stat inplace_testing.8sm", err.Error())
 	}
 	sz2 := info.Size()
 	if sz != sz2 {
@@ -404,7 +404,7 @@ func TestInplace(t *testing.T) {
 
 	/////////
 	// open a new instance and remove 3 values. filesize should stay the same
-	m = New("inplace_testing.bin")
+	m = New("inplace_testing.8sm")
 	mm = m.Mutate()
 
 	mk2 = mm.OpenKey(43)
@@ -456,9 +456,9 @@ func TestInplace(t *testing.T) {
 		t.Fatalf("found %d != %d values in set for key %d", len(vals), k4size, 45)
 	}
 
-	info, err = os.Stat("inplace_testing.bin")
+	info, err = os.Stat("inplace_testing.8sm")
 	if err != nil {
-		t.Fatal("unable to stat inplace_testing.bin", err.Error())
+		t.Fatal("unable to stat inplace_testing.8sm", err.Error())
 	}
 	sz2 = info.Size()
 	if sz != sz2 {
@@ -467,7 +467,7 @@ func TestInplace(t *testing.T) {
 
 	//////////
 	// open a new instance and add a lot of values. filesize should grow
-	m = New("inplace_testing.bin")
+	m = New("inplace_testing.8sm")
 	mm = m.Mutate()
 
 	mk4 = mm.OpenKey(45)
@@ -513,9 +513,9 @@ func TestInplace(t *testing.T) {
 		t.Fatalf("found %d == %d values in set for key %d", len(vals), k4size, 45)
 	}
 
-	info, err = os.Stat("inplace_testing.bin")
+	info, err = os.Stat("inplace_testing.8sm")
 	if err != nil {
-		t.Fatal("unable to stat inplace_testing.bin", err.Error())
+		t.Fatal("unable to stat inplace_testing.8sm", err.Error())
 	}
 	sz2 = info.Size()
 	if sz == sz2 {
