@@ -43,7 +43,8 @@ type MutableMap struct {
 	*Map
 
 	// not yet committed to disk
-	dirty map[uint64][]uint64
+	dirty   map[uint64][]uint64
+	mutkeys map[uint64]*MutableKey
 }
 
 // New returns a new Map backed by the (possibly empty) data in filename.

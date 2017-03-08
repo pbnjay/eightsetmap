@@ -25,8 +25,9 @@ var (
 // Map until after a reload.
 func (m *Map) Mutate() *MutableMap {
 	return &MutableMap{
-		Map:   m,
-		dirty: make(map[uint64][]uint64),
+		Map:     m,
+		dirty:   make(map[uint64][]uint64),
+		mutkeys: make(map[uint64]*MutableKey),
 	}
 }
 
@@ -64,6 +65,9 @@ type MutableKey struct {
 // OpenKey prepares a key for writing. You must call Sync to mark data for
 // later commit to disk.
 func (m *MutableMap) OpenKey(key uint64) *MutableKey {
+	if mk, ok := m.mutkeys[key]; ok {
+		return mk
+	}
 	var vals map[uint64]struct{}
 
 	dirtyVals, ok := m.dirty[key]
@@ -78,11 +82,13 @@ func (m *MutableMap) OpenKey(key uint64) *MutableKey {
 			vals = make(map[uint64]struct{}, DefaultCapacity)
 		}
 	}
-	return &MutableKey{
+	mk := &MutableKey{
 		MutableMap: m,
 		key:        key,
 		vals:       vals,
 	}
+	m.mutkeys[key] = mk
+	return mk
 }
 
 // Sync prepares the key's new data for writing to disk by copying updates to the
