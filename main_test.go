@@ -265,7 +265,7 @@ func TestFibo(t *testing.T) {
 	}
 
 	////////////////
-	m2 := NewShifted("fibo_testing.8sm", 1)
+	m2 := NewShifted("fibo_testing.8sm", 3)
 	for _, f := range fibs {
 		vals, found := m2.Get(f)
 		if !found {
@@ -282,6 +282,13 @@ func TestFibo(t *testing.T) {
 		}
 		if uint64(len(vals)) != f {
 			t.Fatal("found", len(vals), " values instead of", f, "values after shifting")
+		}
+	}
+	// check a few missing keys to test shifted scan miss path
+	for _, f := range []uint64{611, 612, 613, 614, 615} {
+		_, found := m2.Get(f)
+		if found {
+			t.Fatal("should not have found key for", f)
 		}
 	}
 }
