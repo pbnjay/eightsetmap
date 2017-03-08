@@ -1,3 +1,6 @@
+// Package eightsetmap contains a hyper-specialized map[uint64][]uint64 wrapper
+// that implements an out-of-core storage method. So if you have a machine with
+// 16G of RAM, you can still access 64G of data.
 package eightsetmap
 
 import (
@@ -8,6 +11,7 @@ import (
 )
 
 var (
+	// DefaultCacheSize is the number of keys to keep in a LRU cache for each map.
 	DefaultCacheSize = 65535
 )
 

@@ -123,12 +123,114 @@ func (k *MutableKey) PutSlice(vals []uint64) {
 	}
 }
 
+// Remove a value from the key's set.
+func (k *MutableKey) Remove(val uint64) {
+	delete(k.vals, val)
+}
+
+// RemoveSet removes a set of values from the key's set.
+func (k *MutableKey) RemoveSet(vals map[uint64]struct{}) {
+	for val := range vals {
+		delete(k.vals, val)
+	}
+}
+
+// RemoveSlice removes a slice of values from the key's set.
+func (k *MutableKey) RemoveSlice(vals []uint64) {
+	for _, val := range vals {
+		delete(k.vals, val)
+	}
+}
+
+// inplaceCommit tries to put new values into the map without rewriting the
+// whole file. It returns true on success.
+func (m *MutableMap) inplaceCommit() bool {
+	for key, vals := range m.dirty {
+		if _, ok := m.seekToBackingPosition(key); !ok {
+			return false
+		}
+
+		var caplen uint64
+		err := binary.Read(m.f, binary.LittleEndian, &caplen)
+		if err != nil {
+			log.Println(err)
+			return false
+		}
+
+		c := uint32(caplen >> 32)
+		if c < uint32(len(vals)) {
+			// will not fit without resize
+			return false
+		}
+	}
+	// passed checks, we can update in-place!
+	m.f.Close()
+	m.f = nil
+
+	f, err := os.OpenFile(m.filename, os.O_RDWR, 0644)
+	if err != nil {
+		return false
+	}
+	m.f = f
+	defer func() {
+		m.f.Close()
+		m.f = nil
+	}()
+
+	for key, vals := range m.dirty {
+		if _, ok := m.seekToBackingPosition(key); !ok {
+			return false
+		}
+
+		var caplen uint64
+		err := binary.Read(m.f, binary.LittleEndian, &caplen)
+		if err != nil {
+			log.Println(err)
+			return false
+		}
+
+		c := uint32(caplen >> 32)
+		l := uint32(caplen)
+		if l != uint32(len(vals)) {
+			_, err = m.f.Seek(-8, os.SEEK_CUR)
+			if err != nil {
+				log.Println(err)
+				return false
+			}
+			caplen = uint64(c)<<32 | uint64(len(vals))
+			err := binary.Write(m.f, binary.LittleEndian, caplen)
+			if err != nil {
+				log.Println(err)
+				return false
+			}
+		}
+
+		err = binary.Write(m.f, binary.LittleEndian, vals)
+		if err != nil {
+			log.Println(err)
+			return false
+		}
+	}
+	// if we got here without failing then all was ok!
+	for key, vals := range m.dirty {
+		m.cache.Add(key, vals)
+		delete(m.dirty, key)
+	}
+	return true
+}
+
 // Commit writes the changed entries to disk. If packed is true, then no empty room is left
 // for later expansion. The MutableMap can be immediately reused after a successful commit.
 func (m *MutableMap) Commit(packed bool) error {
 	if len(m.dirty) == 0 {
 		// nothing to write!
 		return nil
+	}
+
+	if !packed {
+		if m.inplaceCommit() {
+			return nil
+		}
 	}
 
 	if m.f != nil {

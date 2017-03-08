@@ -189,7 +189,6 @@ func TestFibo(t *testing.T) {
 		t.Fatal("unable to stat committed file")
 	}
 	szPacked := info.Size()
-	log.Printf("packed file is %d bytes, unpacked file is %d bytes", szPacked, sz)
 
 	if szPacked > sz {
 		t.Fatalf("packed file is %d bytes, but unpacked file is %d bytes", szPacked, sz)
@@ -261,7 +260,6 @@ func TestFibo(t *testing.T) {
 		t.Fatal("unable to stat committed file (round2)")
 	}
 	szPacked = info.Size()
-	log.Printf("packed file is %d bytes, unpacked file is %d bytes (round2)", szPacked, sz)
 	if szPacked > sz {
 		t.Fatalf("packed file is %d bytes, but unpacked file is %d bytes (round2)", szPacked, sz)
 	}
@@ -285,5 +283,242 @@ func TestFibo(t *testing.T) {
 		if uint64(len(vals)) != f {
 			t.Fatal("found", len(vals), " values instead of", f, "values after shifting")
 		}
+	}
+}
+
+func TestInplace(t *testing.T) {
+	os.Remove("inplace_testing.bin")
+	m := New("inplace_testing.bin")
+	mm := m.Mutate()
+
+	justUnder := int(FillFactor) - 1
+	mk1 := mm.OpenKey(42)
+	mk2 := mm.OpenKey(43)
+	mk3 := mm.OpenKey(44)
+	mk4 := mm.OpenKey(45)
+	for i := 0; i < justUnder; i++ {
+		mk1.Put(42)
+		mk2.Put(42 * uint64(i)) // duplicate of existing
+		mk3.Put(uint64(i))      // new value in sequence
+		mk4.Put(rand.Uint64())  // not in sequence
+	}
+
+	mk1.Sync()
+	mk2.Sync()
+	mk3.Sync()
+	mk4.Sync()
+	err := mm.Commit(false)
+	if err != nil {
+		t.Fatal("unable to commit changes", err)
+	}
+
+	vals, ok := m.Get(42)
+	if !ok {
+		t.Fatal("key 42 not found after adding!")
+	}
+	if len(vals) != 1 {
+		t.Fatalf("found %d != 1 values in set", len(vals))
+	}
+	for _, k := range []uint64{43, 44, 45} {
+		vals, ok = m.Get(k)
+		if !ok {
+			t.Fatalf("key %d not found after adding!", k)
+		}
+		if len(vals) != justUnder {
+			t.Fatalf("found %d != %d values in set for key %d", len(vals), justUnder, k)
+		}
+	}
+	info, err := os.Stat("inplace_testing.bin")
+	if err != nil {
+		t.Fatal("unable to stat inplace_testing.bin", err.Error())
+	}
+	sz := info.Size()
+
+	/////////
+	// open a new instance and add 3 values. filesize should stay the same
+	m = New("inplace_testing.bin")
+	mm = m.Mutate()
+
+	toadd := 1 + int(DefaultCapacity-FillFactor)/2
+	mk1 = mm.OpenKey(42)
+	mk2 = mm.OpenKey(43)
+	mk3 = mm.OpenKey(44)
+	mk4 = mm.OpenKey(45)
+	for i := 0; i < toadd; i++ {
+		mk1.Put(42)
+		mk2.Put(42 * uint64(i))        // duplicate of existing
+		mk3.Put(uint64(justUnder + i)) // new value in sequence
+		mk4.Put(rand.Uint64())         // not in sequence
+	}
+
+	mk1.Sync()
+	mk2.Sync()
+	mk3.Sync()
+	mk4.Sync()
+	err = mm.Commit(false)
+	if err != nil {
+		t.Fatal("unable to commit changes", err)
+	}
+
+	vals, ok = m.Get(42)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 42)
+	}
+	if len(vals) != 1 {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), 1, 42)
+	}
+
+	vals, ok = m.Get(43)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 43)
+	}
+	if len(vals) != justUnder {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), justUnder, 43)
+	}
+
+	vals, ok = m.Get(44)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 44)
+	}
+	if len(vals) <= justUnder {
+		t.Fatalf("found %d <= %d values in set for key %d", len(vals), justUnder, 44)
+	}
+
+	vals, ok = m.Get(45)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 45)
+	}
+	if len(vals) <= justUnder {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), justUnder, 45)
+	}
+	k4size := len(vals)
+
+	info, err = os.Stat("inplace_testing.bin")
+	if err != nil {
+		t.Fatal("unable to stat inplace_testing.bin", err.Error())
+	}
+	sz2 := info.Size()
+	if sz != sz2 {
+		t.Fatalf("size changed. should have used in-place update (new:%d != old:%d)", sz2, sz)
+	}
+
+	/////////
+	// open a new instance and remove 3 values. filesize should stay the same
+	m = New("inplace_testing.bin")
+	mm = m.Mutate()
+
+	mk2 = mm.OpenKey(43)
+	mk3 = mm.OpenKey(44)
+	mk4 = mm.OpenKey(45)
+	for i := 0; i < toadd; i++ {
+		mk2.Remove(42 * uint64(i))
+		mk3.Remove(uint64(justUnder + i))
+		mk4.Remove(rand.Uint64())
+	}
+
+	mk2.Sync()
+	mk3.Sync()
+	mk4.Sync()
+	err = mm.Commit(false)
+	if err != nil {
+		t.Fatal("unable to commit changes", err)
+	}
+
+	vals, ok = m.Get(42)
+	if !ok {
+		t.Fatalf("key %d not found after removing!", 42)
+	}
+	if len(vals) != 1 {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), 1, 42)
+	}
+
+	vals, ok = m.Get(43)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 43)
+	}
+	if len(vals) != (justUnder - toadd) {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), (justUnder - toadd), 43)
+	}
+
+	vals, ok = m.Get(44)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 44)
+	}
+	if len(vals) != justUnder {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), justUnder, 44)
+	}
+
+	vals, ok = m.Get(45)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 45)
+	}
+	if len(vals) != k4size {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), k4size, 45)
+	}
+
+	info, err = os.Stat("inplace_testing.bin")
+	if err != nil {
+		t.Fatal("unable to stat inplace_testing.bin", err.Error())
+	}
+	sz2 = info.Size()
+	if sz != sz2 {
+		t.Fatalf("size changed. should have used in-place update (new:%d != old:%d)", sz2, sz)
+	}
+
+	//////////
+	// open a new instance and add a lot of values. filesize should grow
+	m = New("inplace_testing.bin")
+	mm = m.Mutate()
+
+	mk4 = mm.OpenKey(45)
+	for i := 0; i < 99*int(DefaultCapacity); i++ {
+		mk4.Put(rand.Uint64())
+	}
+
+	mk4.Sync()
+	err = mm.Commit(false)
+	if err != nil {
+		t.Fatal("unable to commit changes", err)
+	}
+
+	vals, ok = m.Get(42)
+	if !ok {
+		t.Fatalf("key %d not found after removing!", 42)
+	}
+	if len(vals) != 1 {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), 1, 42)
+	}
+
+	vals, ok = m.Get(43)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 43)
+	}
+	if len(vals) != (justUnder - toadd) {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), (justUnder - toadd), 43)
+	}
+
+	vals, ok = m.Get(44)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 44)
+	}
+	if len(vals) != justUnder {
+		t.Fatalf("found %d != %d values in set for key %d", len(vals), justUnder, 44)
+	}
+
+	vals, ok = m.Get(45)
+	if !ok {
+		t.Fatalf("key %d not found after adding!", 45)
+	}
+	if len(vals) == k4size {
+		t.Fatalf("found %d == %d values in set for key %d", len(vals), k4size, 45)
+	}
+
+	info, err = os.Stat("inplace_testing.bin")
+	if err != nil {
+		t.Fatal("unable to stat inplace_testing.bin", err.Error())
+	}
+	sz2 = info.Size()
+	if sz == sz2 {
+		t.Fatalf("size did not change. should have grown (new:%d != old:%d)", sz2, sz)
 	}
 }
