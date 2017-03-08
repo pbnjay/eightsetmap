@@ -103,6 +103,16 @@ func (k *MutableKey) Sync() {
 	k.MutableMap.dirty[k.key] = vals
 }
 
+// Discard frees up internal references to this key to release memory.
+func (k *MutableKey) Discard() {
+	for v := range k.vals {
+		delete(k.vals, v)
+	}
+	delete(k.MutableMap.mutkeys, k.key)
+	k.MutableMap = nil
+	k.vals = nil
+}
+
 // Clear empties the set of values for the key.
 func (k *MutableKey) Clear() {
 	for v := range k.vals {
