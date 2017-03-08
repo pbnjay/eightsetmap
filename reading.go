@@ -6,16 +6,7 @@ import (
 	"os"
 )
 
-func (m *Map) getFromCache(key uint64) ([]uint64, bool) {
-	islice, ok := m.cache.Get(key)
-	if !ok {
-		return nil, false
-	}
-	vv, ok := islice.([]uint64)
-	return vv, ok
-}
-
-// seekToBackingPosition moves the the position in the backing file for the key
+// seekToBackingPosition moves to the position in the backing file for the key
 func (m *Map) seekToBackingPosition(key uint64) (int64, bool) {
 	var err error
 	if m.f == nil {
@@ -41,6 +32,9 @@ func (m *Map) seekToBackingPosition(key uint64) (int64, bool) {
 		}
 
 		var okey uint64
+		if key == 0 {
+			okey = 1
+		}
 		for okey != key {
 			// uint64 key
 			err = binary.Read(m.f, binary.LittleEndian, &okey)
@@ -70,13 +64,14 @@ func (m *Map) seekToBackingPosition(key uint64) (int64, bool) {
 	return offs, err == nil
 }
 
+// getFromBacking gets the set of values from the backing file
 func (m *Map) getFromBacking(key uint64) ([]uint64, bool) {
-	offs, ok := m.seekToBackingPosition(key)
+	_, ok := m.seekToBackingPosition(key)
 	if !ok {
 		return nil, false
 	}
 
-	// 32bit capacity, 32bit length, packed into 64bits
+	// 64bit int, upper 32bits capacity, lower 32bits length
 	var caplen uint64
 	err := binary.Read(m.f, binary.LittleEndian, &caplen)
 	if err != nil {
@@ -84,8 +79,14 @@ func (m *Map) getFromBacking(key uint64) ([]uint64, bool) {
 		return nil, false
 	}
 
-	// upper 32bits = capacity, dropped to get just length
-	vals := make([]uint64, uint32(caplen))
+	// downcast to get just length
+	l := uint32(caplen)
+	if l == 0 {
+		return []uint64{}, true
+	}
+	vals := make([]uint64, l)
+
+	// NB m.f is open/valid due to seekToBackingPosition
 	err = binary.Read(m.f, binary.LittleEndian, &vals)
 	if err != nil {
 		log.Println(err)
