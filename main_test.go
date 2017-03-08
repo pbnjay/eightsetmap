@@ -26,7 +26,7 @@ func TestSimple(t *testing.T) {
 	mm := m.Mutate()
 	mk := mm.OpenKey(1)
 	mk.Put(10)
-	mk.Close()
+	mk.Sync()
 	vals, found := mm.Get(1)
 	if !found {
 		t.Fatal("did not find 1 after adding")
@@ -40,7 +40,7 @@ func TestSimple(t *testing.T) {
 
 	mk = mm.OpenKey(1)
 	mk.Put(20)
-	mk.Close()
+	mk.Sync()
 	vals, found = mm.Get(1)
 	if !found {
 		t.Fatal("did not find 1 after adding 2nd value")
@@ -57,7 +57,7 @@ func TestSimple(t *testing.T) {
 
 	mk = mm.OpenKey(1)
 	mk.Put(5)
-	mk.Close()
+	mk.Sync()
 	vals, found = mm.Get(1)
 	if !found {
 		t.Fatal("did not find 1 after adding 3rd value")
@@ -143,7 +143,7 @@ func TestFibo(t *testing.T) {
 				mk.Put(uint64(i))
 			}
 		}
-		mk.Close()
+		mk.Sync()
 		vals, found := mm.Get(f)
 		if !found {
 			t.Fatal("did not find", f, "after adding")
@@ -215,7 +215,7 @@ func TestFibo(t *testing.T) {
 				mk.Put(uint64(i))
 			}
 		}
-		mk.Close()
+		mk.Sync()
 		vals, found := mm.Get(f)
 		if !found {
 			t.Fatal("did not find", f, "after adding (round2)")

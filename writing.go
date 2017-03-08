@@ -53,7 +53,7 @@ func (m *MutableMap) GetSet(key uint64) (map[uint64]struct{}, bool) {
 }
 
 // MutableKey represents a key that is open for writing changes to the set of
-// values. Once open, the calling code must call Close to add changes to the
+// values. Once open, the calling code must call Sync to add changes to the
 // MutableMap's buffered changes.
 type MutableKey struct {
 	*MutableMap
@@ -61,7 +61,7 @@ type MutableKey struct {
 	vals map[uint64]struct{}
 }
 
-// OpenKey prepares a key for writing. You must call Close to mark data for
+// OpenKey prepares a key for writing. You must call Sync to mark data for
 // later commit to disk.
 func (m *MutableMap) OpenKey(key uint64) *MutableKey {
 	var vals map[uint64]struct{}
@@ -85,8 +85,10 @@ func (m *MutableMap) OpenKey(key uint64) *MutableKey {
 	}
 }
 
-// Close prepares the key's new data for writing to disk.
-func (k *MutableKey) Close() {
+// Sync prepares the key's new data for writing to disk by copying updates to the
+// linked MutableMap. MutableKey may continue to be used but will not reflect other
+// changes outside of it own scope (since OpenKey).
+func (k *MutableKey) Sync() {
 	vals := make([]uint64, 0, len(k.vals))
 	for v := range k.vals {
 		vals = append(vals, v)
@@ -121,7 +123,8 @@ func (k *MutableKey) PutSlice(vals []uint64) {
 	}
 }
 
-// Commit writes the changed entries to disk. If packed is true, then no empty room is left for later expansion.
+// Commit writes the changed entries to disk. If packed is true, then no empty room is left
+// for later expansion. The MutableMap can be immediately reused after a successful commit.
 func (m *MutableMap) Commit(packed bool) error {
 	if len(m.dirty) == 0 {
 		// nothing to write!
@@ -307,18 +310,22 @@ func (m *MutableMap) Commit(packed bool) error {
 	}
 
 	err = os.Rename(tmpName, m.filename)
-	if err == nil && oldf != nil {
+	if err != nil {
+		return err
+	}
+	if oldf != nil {
 		err = os.Remove(m.filename + ".old")
 		if err != nil {
 			log.Println(err)
-			err = nil
 		}
 	}
 
-	// move new data into m.Map so it can be used immediately...
+	// move new data into m.Map so it can be used immediately,
+	// and clear out dirty list to be reused...
 	m.offsets = newoffsets
 	for k, v := range m.dirty {
 		m.cache.Add(k, v)
+		delete(m.dirty, k)
 	}
-	return err
+	return nil
 }
