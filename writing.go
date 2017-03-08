@@ -3,11 +3,13 @@ package eightsetmap
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 )
 
 var (
@@ -23,11 +25,17 @@ var (
 // Mutate creates a mutable reference to the map. To write any changes to disk,
 // you must call Commit first. Mutated keys will not be visible to the parent
 // Map until after a reload.
-func (m *Map) Mutate() *MutableMap {
+//
+// If autosync is true, then mutated keys are automatically Sync()ed when
+// Commit is called. If false, then you must Sync() mutated keys manually to
+// pull them into a Commit.
+func (m *Map) Mutate(autosync bool) *MutableMap {
 	return &MutableMap{
-		Map:     m,
-		dirty:   make(map[uint64][]uint64),
-		mutkeys: make(map[uint64]*MutableKey),
+		Map:   m,
+		dirty: make(map[uint64][]uint64),
+
+		mutkeys:  make(map[uint64]*MutableKey),
+		autosync: autosync,
 	}
 }
 
@@ -60,6 +68,8 @@ type MutableKey struct {
 	*MutableMap
 	key  uint64
 	vals map[uint64]struct{}
+
+	synced bool
 }
 
 // OpenKey prepares a key for writing. You must call Sync to mark data for
@@ -86,6 +96,7 @@ func (m *MutableMap) OpenKey(key uint64) *MutableKey {
 		MutableMap: m,
 		key:        key,
 		vals:       vals,
+		synced:     true,
 	}
 	m.mutkeys[key] = mk
 	return mk
@@ -101,6 +112,7 @@ func (k *MutableKey) Sync() {
 	}
 	sort.Slice(vals, func(i, j int) bool { return vals[i] < vals[j] })
 	k.MutableMap.dirty[k.key] = vals
+	k.synced = true
 }
 
 // Discard frees up internal references to this key to release memory.
@@ -117,18 +129,21 @@ func (k *MutableKey) Discard() {
 func (k *MutableKey) Clear() {
 	for v := range k.vals {
 		delete(k.vals, v)
+		k.synced = false
 	}
 }
 
 // Put adds a value to the key's set.
 func (k *MutableKey) Put(val uint64) {
 	k.vals[val] = struct{}{}
+	k.synced = false
 }
 
 // PutSet adds a set of values to the key's set.
 func (k *MutableKey) PutSet(vals map[uint64]struct{}) {
 	for val := range vals {
 		k.vals[val] = struct{}{}
+		k.synced = false
 	}
 }
 
@@ -136,18 +151,21 @@ func (k *MutableKey) PutSet(vals map[uint64]struct{}) {
 func (k *MutableKey) PutSlice(vals []uint64) {
 	for _, val := range vals {
 		k.vals[val] = struct{}{}
+		k.synced = false
 	}
 }
 
 // Remove a value from the key's set.
 func (k *MutableKey) Remove(val uint64) {
 	delete(k.vals, val)
+	k.synced = false
 }
 
 // RemoveSet removes a set of values from the key's set.
 func (k *MutableKey) RemoveSet(vals map[uint64]struct{}) {
 	for val := range vals {
 		delete(k.vals, val)
+		k.synced = false
 	}
 }
 
@@ -155,6 +173,7 @@ func (k *MutableKey) RemoveSet(vals map[uint64]struct{}) {
 func (k *MutableKey) RemoveSlice(vals []uint64) {
 	for _, val := range vals {
 		delete(k.vals, val)
+		k.synced = false
 	}
 }
 
@@ -238,6 +257,14 @@ func (m *MutableMap) inplaceCommit() bool {
 // Commit writes the changed entries to disk. If packed is true, then no empty room is left
 // for later expansion. The MutableMap can be immediately reused after a successful commit.
 func (m *MutableMap) Commit(packed bool) error {
+	if m.autosync {
+		for k, mk := range m.mutkeys {
+			if !mk.synced {
+				mk.Sync()
+			}
+			delete(m.mutkeys, k)
+		}
+	}
 	if len(m.dirty) == 0 {
 		// nothing to write!
 		return nil
@@ -428,6 +455,23 @@ func (m *MutableMap) Commit(packed bool) error {
 	}
 
 	err = os.Rename(tmpName, m.filename)
+	if err != nil {
+		start := time.Now()
+		var a, b *os.File
+		// i get a cross-device link error when i try to move across partitions
+		// so let's address that
+		a, err = os.Open(tmpName)
+		if err == nil {
+			b, err = os.Create(m.filename)
+			if err == nil {
+				_, err = io.Copy(b, a)
+				b.Close()
+			}
+			a.Close()
+		}
+		elap := time.Now().Sub(start)
+		log.Println("took", elap, "to copy across partitions")
+	}
 	if err != nil {
 		return err
 	}

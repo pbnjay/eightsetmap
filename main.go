@@ -45,6 +45,9 @@ type MutableMap struct {
 	// not yet committed to disk
 	dirty   map[uint64][]uint64
 	mutkeys map[uint64]*MutableKey
+
+	// should keys be auto-synced?
+	autosync bool
 }
 
 // New returns a new Map backed by the (possibly empty) data in filename.
