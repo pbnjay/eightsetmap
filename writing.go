@@ -305,6 +305,24 @@ func (m *MutableMap) Commit(packed bool) error {
 		//return m.indirectCommit(oldf, newf, packed)
 	}
 
+	x := uint32(MAGIC)
+	err = binary.Write(newf, binary.LittleEndian, x)
+	if err != nil {
+		return err
+	}
+	// overflow is possible, but if it happens WTF
+	x = uint32(len(m.Data))
+	err = binary.Write(newf, binary.LittleEndian, x)
+	if err != nil {
+		return err
+	}
+	if x != 0 {
+		_, err = newf.Write(m.Data)
+		if err != nil {
+			return err
+		}
+	}
+
 	/////
 	keys := make([]uint64, 0, len(m.offsets)+len(m.dirty))
 	for k := range m.offsets {
@@ -420,7 +438,7 @@ func (m *MutableMap) Commit(packed bool) error {
 	}
 
 	// jump back to the top offset table
-	_, err = newf.Seek(8, os.SEEK_SET)
+	_, err = newf.Seek(int64(16+len(m.Data)), os.SEEK_SET)
 	if err != nil {
 		return err
 	}
@@ -489,5 +507,6 @@ func (m *MutableMap) Commit(packed bool) error {
 		m.cache.Add(k, v)
 		delete(m.dirty, k)
 	}
+	m.start = 16 + len(m.Data)
 	return nil
 }

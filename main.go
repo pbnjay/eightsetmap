@@ -10,6 +10,11 @@ import (
 	"github.com/hashicorp/golang-lru"
 )
 
+const (
+	// Magic header uint32 = 'j8sm' defines the file type.
+	MAGIC uint32 = 0x6d73386a
+)
+
 var (
 	// DefaultCacheSize is the number of keys to keep in a LRU cache for each map.
 	DefaultCacheSize = 65535
@@ -29,6 +34,7 @@ var (
 type Map struct {
 	filename string
 	f        *os.File // readonly file
+	start    int      // lookup table start offset
 
 	// 1 billion keys here will easily take over 16gb...
 	offsets  map[uint64]int64
@@ -36,6 +42,9 @@ type Map struct {
 
 	//cache map[uint64][]uint64
 	cache *lru.Cache
+
+	// Data contains the custom data embedded within the on-disk format.
+	Data []byte
 }
 
 // MutableMap represents a Map that can be written to.
@@ -59,9 +68,34 @@ func New(filename string) *Map {
 // A shift is a power of 2 factor, so shift=1 means that memory usage is
 // approximately cut in half, but that lookups will take additional disk seeks.
 func NewShifted(filename string, shift uint64) *Map {
+	var cdata []byte
 	offs := make(map[uint64]int64)
 	f, err := os.Open(filename)
 	if err == nil {
+		var x uint32
+		err = binary.Read(f, binary.LittleEndian, &x)
+		if err != nil {
+			panic(err)
+		}
+		if x != MAGIC {
+			panic("this is not an 8sm file (magic invalid)")
+		}
+		// read in size of custom data section
+		err = binary.Read(f, binary.LittleEndian, &x)
+		if err != nil {
+			panic(err)
+		}
+		if x > 0 {
+			cdata = make([]byte, x)
+			n, err := f.Read(cdata)
+			if err != nil {
+				panic(err)
+			}
+			if n != int(x) {
+				panic("did not fully read custom data")
+			}
+		}
+
 		var i, n, key, lastkey uint64
 		var o int64
 		// number of offsets
@@ -103,9 +137,12 @@ func NewShifted(filename string, shift uint64) *Map {
 	c, _ := lru.New(DefaultCacheSize) // err always nil
 	return &Map{
 		filename: filename,
+		start:    16 + len(cdata),
 		offsets:  offs,
 		shiftkey: shift,
 		cache:    c,
+
+		Data: cdata,
 	}
 }
 

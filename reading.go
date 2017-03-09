@@ -26,7 +26,7 @@ func (m *Map) seekToBackingPosition(key uint64) (int64, bool) {
 
 	if m.shiftkey > 0 {
 		// jump to the lookup table and find the true offset
-		_, err = m.f.Seek(8+(offs*16), os.SEEK_SET)
+		_, err = m.f.Seek(int64(m.start)+(offs*16), os.SEEK_SET)
 		if err != nil {
 			return 0, false
 		}

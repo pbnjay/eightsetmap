@@ -178,6 +178,7 @@ func TestFibo(t *testing.T) {
 	}
 	sz := info.Size()
 
+	m.Data = []byte("this is a random comment embedded in the file")
 	err = mm.Commit(true)
 	if err != nil {
 		log.Println(err)
@@ -266,6 +267,9 @@ func TestFibo(t *testing.T) {
 
 	////////////////
 	m2 := NewShifted("fibo_testing.8sm", 3)
+	if len(m2.Data) == 0 {
+		t.Fatal("embedded comment not preserved")
+	}
 	for _, f := range fibs {
 		vals, found := m2.Get(f)
 		if !found {
