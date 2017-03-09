@@ -5,6 +5,7 @@ package eightsetmap
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 
 	"github.com/hashicorp/golang-lru"
@@ -166,4 +167,18 @@ func (m *Map) GetSet(key uint64) (map[uint64]struct{}, bool) {
 		v[val] = struct{}{}
 	}
 	return v, true
+}
+
+// EachKey calls eachFunc for every key in the map until a non-nil error is returned.
+func (m *Map) EachKey(eachFunc func(uint64) error) error {
+	if m.shiftkey > 0 {
+		return fmt.Errorf("not yet implemented")
+	}
+	for k := range m.offsets {
+		err := eachFunc(k)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -96,3 +96,21 @@ func (m *Map) getFromBacking(key uint64) ([]uint64, bool) {
 	m.cache.Add(key, vals)
 	return vals, true
 }
+
+// GetSize gets the size of the set of values for the given key
+func (m *Map) GetSize(key uint64) (uint32, bool) {
+	_, ok := m.seekToBackingPosition(key)
+	if !ok {
+		return 0, false
+	}
+
+	var caplen uint64
+	err := binary.Read(m.f, binary.LittleEndian, &caplen)
+	if err != nil {
+		log.Println(err)
+		return 0, false
+	}
+
+	// downcast to get just length
+	return uint32(caplen), true
+}
