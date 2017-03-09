@@ -11,7 +11,7 @@ func TestSets(t *testing.T) {
 	ofibs := []uint64{1, 3, 5, 13}
 
 	m := New("sets_testing.8sm")
-	mm := m.Mutate()
+	mm := m.Mutate(false)
 	mk1 := mm.OpenKey(1)
 	mk2 := mm.OpenKey(2)
 	mk3 := mm.OpenKey(3)
