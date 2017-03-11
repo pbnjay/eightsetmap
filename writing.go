@@ -263,6 +263,10 @@ func (m *MutableMap) inplaceCommit() bool {
 // To maintain data alignment, it is recommended to make extraBytes a multiple of 8.
 type PackerFunc func(valsize uint32) (capval uint32, extraBytes uint32)
 
+// ExtraFunc is a function that provides additional data for a key, which will be
+// placed directly after the key's set of values.
+type ExtraFunc func(key uint64) []byte
+
 // TightPacker does not reserve any extra space in the disk storage format.
 func TightPacker(valsize uint32) (capval uint32, pad uint32) {
 	return valsize, 0
@@ -305,21 +309,21 @@ func (m *MutableMap) Commit(packed bool) error {
 	}
 
 	if packed {
-		return m.CommitWithPacker(TightPacker)
+		return m.CommitWithPacker(TightPacker, nil)
 	}
 
 	if m.inplaceCommit() {
 		return nil
 	}
 
-	return m.CommitWithPacker(DefaultPacker)
+	return m.CommitWithPacker(DefaultPacker, nil)
 }
 
 // CommitWithPacker allows the usage of custom data embedded into the lookup table. Maps
 // saved using custom packers should not be modified unless you know what you are doing.
 //
 // Note if autosync is enabled and there are no changes, nothing will be done.
-func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
+func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error {
 	if m.autosync {
 		for k, mk := range m.mutkeys {
 			if !mk.synced {
@@ -439,6 +443,16 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 			if err != nil {
 				return err
 			}
+			if pad > 0 && extra != nil {
+				edata := extra(k)
+				if len(edata) > 0 {
+					_, err = newf.Write(edata)
+					if err != nil {
+						return err
+					}
+					pad -= uint32(len(edata))
+				}
+			}
 			if pad > 0 {
 				_, err = newf.Write(bytes.Repeat([]byte{0}, int(pad)))
 				if err != nil {
@@ -480,6 +494,16 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 		err = binary.Write(newf, binary.LittleEndian, vals)
 		if err != nil {
 			return err
+		}
+		if pad > 0 && extra != nil {
+			edata := extra(k)
+			if len(edata) > 0 {
+				_, err = newf.Write(edata)
+				if err != nil {
+					return err
+				}
+				pad -= uint32(len(edata))
+			}
 		}
 		if pad > 0 {
 			_, err = newf.Write(bytes.Repeat([]byte{0}, int(pad)))
