@@ -263,34 +263,30 @@ func (m *MutableMap) inplaceCommit() bool {
 }
 
 // PackerFunc is a function that tells the serialization code how to pack additional
-// space into the file. It takes the number of values in the set (valsize) and returns
-// the 'capacity' value (capval) to encode into the key's header, along with the number
-// of padding bytes to leave after the set data (extraBytes).
+// data into the file. Additional data MUST by 8-byte aligned, and returned in the
+// 'extra' return value. The count must be the number of 8-byte chunks found.
 //
-// To maintain data alignment, it is recommended to make extraBytes a multiple of 8.
-type PackerFunc func(key uint64, valsize uint32) (capval uint32, extraBytes uint32)
-
-// ExtraFunc is a function that provides additional data for a key, which will be
-// placed directly after the key's set of values.
-type ExtraFunc func(key uint64) []byte
+// Note that extra must be a data type serializable by `encoding/binary`, but it does
+// not necessarily need to be 64bit types.
+type PackerFunc func(key uint64, valsize uint32) (count int, extra interface{})
 
 // TightPacker does not reserve any extra space in the disk storage format.
-func TightPacker(key uint64, valsize uint32) (capval uint32, pad uint32) {
-	return valsize, 0
+func TightPacker(key uint64, valsize uint32) (count int, extra interface{}) {
+	return 0, nil
 }
 
 // DefaultPacker tells the serialization code to leave some padding in the file so that
 // minimal updates can be performed in-place.
-func DefaultPacker(key uint64, valsize uint32) (capval uint32, pad uint32) {
+func DefaultPacker(key uint64, valsize uint32) (count int, extra interface{}) {
 	// leave extra room to grow
 	sz := valsize + (DefaultCapacity - FillFactor)
 	sz = DefaultCapacity * (1 + (sz / DefaultCapacity))
 	if sz < valsize {
 		panic("size mismatch")
 	}
-	pad = sz - valsize
+	pad := int(sz - valsize)
 
-	return sz, pad * 8
+	return pad, bytes.Repeat([]byte{0}, pad*8)
 }
 
 // Commit writes the changed entries to disk. If packed is true, then no empty room is left
@@ -316,21 +312,21 @@ func (m *MutableMap) Commit(packed bool) error {
 	}
 
 	if packed {
-		return m.CommitWithPacker(TightPacker, nil)
+		return m.CommitWithPacker(TightPacker)
 	}
 
 	if m.inplaceCommit() {
 		return nil
 	}
 
-	return m.CommitWithPacker(DefaultPacker, nil)
+	return m.CommitWithPacker(DefaultPacker)
 }
 
 // CommitWithPacker allows the usage of custom data embedded into the lookup table. Maps
 // saved using custom packers should not be modified unless you know what you are doing.
 //
 // Note if autosync is enabled and there are no changes, nothing will be done.
-func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error {
+func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 	if m.autosync {
 		for k, mk := range m.mutkeys {
 			if !mk.synced {
@@ -444,8 +440,8 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		if newvals, ok := m.dirty[k]; ok {
 			caplen = uint64(len(newvals))
 
-			sz, pad := packer(k, uint32(len(newvals)))
-			caplen |= uint64(sz) << 32
+			extraCount, extraData := packer(k, uint32(len(newvals)))
+			caplen |= (caplen + uint64(extraCount)) << 32
 
 			err = binary.Write(w, binary.LittleEndian, caplen)
 			if err != nil {
@@ -455,21 +451,9 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 			if err != nil {
 				return err
 			}
-			offs += int64(8 + 8*len(newvals))
-			if pad > 0 && extra != nil {
-				edata := extra(k)
-				if len(edata) > 0 {
-					_, err = w.Write(edata)
-					if err != nil {
-						return err
-					}
-					offs += int64(len(edata))
-					pad -= uint32(len(edata))
-				}
-			}
-			if pad > 0 {
-				offs += int64(pad)
-				_, err = w.Write(bytes.Repeat([]byte{0}, int(pad)))
+			offs += int64(8 + 8*len(newvals) + 8*extraCount)
+			if extraCount > 0 {
+				err = binary.Write(w, binary.LittleEndian, extraData)
 				if err != nil {
 					return err
 				}
@@ -498,8 +482,8 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		// truncate to values only
 		vals = vals[:uint32(caplen)]
 		caplen = uint64(len(vals))
-		sz, pad := packer(k, uint32(len(vals)))
-		caplen |= uint64(sz) << 32
+		extraCount, extraData := packer(k, uint32(len(vals)))
+		caplen |= (caplen + uint64(extraCount)) << 32
 
 		//	copy caplen + values to new file
 		err = binary.Write(w, binary.LittleEndian, caplen)
@@ -510,21 +494,9 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		if err != nil {
 			return err
 		}
-		offs += int64(8 + 8*len(vals))
-		if pad > 0 && extra != nil {
-			edata := extra(k)
-			if len(edata) > 0 {
-				_, err = w.Write(edata)
-				if err != nil {
-					return err
-				}
-				offs += int64(len(edata))
-				pad -= uint32(len(edata))
-			}
-		}
-		if pad > 0 {
-			offs += int64(pad)
-			_, err = w.Write(bytes.Repeat([]byte{0}, int(pad)))
+		offs += int64(8 + 8*len(vals) + 8*extraCount)
+		if extraCount > 0 {
+			err = binary.Write(w, binary.LittleEndian, extraData)
 			if err != nil {
 				return err
 			}
