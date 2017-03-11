@@ -1,6 +1,7 @@
 package eightsetmap
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -421,12 +422,12 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		newoffsets[k] = 0
 	}
 
+	offs, err := newf.Seek(0, os.SEEK_CUR)
+	w := bufio.NewWriterSize(newf, 50000000) //50mb buffer
+
 	////////
 	for _, k := range keys {
-		newoffsets[k], err = newf.Seek(0, os.SEEK_CUR)
-		if err != nil {
-			return err
-		}
+		newoffsets[k] = offs
 
 		var caplen uint64
 		if newvals, ok := m.dirty[k]; ok {
@@ -435,26 +436,29 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 			sz, pad := packer(uint32(len(newvals)))
 			caplen |= uint64(sz) << 32
 
-			err = binary.Write(newf, binary.LittleEndian, caplen)
+			err = binary.Write(w, binary.LittleEndian, caplen)
 			if err != nil {
 				return err
 			}
-			err = binary.Write(newf, binary.LittleEndian, newvals)
+			err = binary.Write(w, binary.LittleEndian, newvals)
 			if err != nil {
 				return err
 			}
+			offs += int64(8 + 8*len(newvals))
 			if pad > 0 && extra != nil {
 				edata := extra(k)
 				if len(edata) > 0 {
-					_, err = newf.Write(edata)
+					_, err = w.Write(edata)
 					if err != nil {
 						return err
 					}
+					offs += int64(len(edata))
 					pad -= uint32(len(edata))
 				}
 			}
 			if pad > 0 {
-				_, err = newf.Write(bytes.Repeat([]byte{0}, int(pad)))
+				offs += int64(pad)
+				_, err = w.Write(bytes.Repeat([]byte{0}, int(pad)))
 				if err != nil {
 					return err
 				}
@@ -487,31 +491,37 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		caplen |= uint64(sz) << 32
 
 		//	copy caplen + values to new file
-		err = binary.Write(newf, binary.LittleEndian, caplen)
+		err = binary.Write(w, binary.LittleEndian, caplen)
 		if err != nil {
 			return err
 		}
-		err = binary.Write(newf, binary.LittleEndian, vals)
+		err = binary.Write(w, binary.LittleEndian, vals)
 		if err != nil {
 			return err
 		}
+		offs += int64(8 + 8*len(vals))
 		if pad > 0 && extra != nil {
 			edata := extra(k)
 			if len(edata) > 0 {
-				_, err = newf.Write(edata)
+				_, err = w.Write(edata)
 				if err != nil {
 					return err
 				}
+				offs += int64(len(edata))
 				pad -= uint32(len(edata))
 			}
 		}
 		if pad > 0 {
-			_, err = newf.Write(bytes.Repeat([]byte{0}, int(pad)))
+			offs += int64(pad)
+			_, err = w.Write(bytes.Repeat([]byte{0}, int(pad)))
 			if err != nil {
 				return err
 			}
 		}
 	}
+
+	// not used anymore after this
+	w.Flush()
 
 	// jump back to the top offset table
 	_, err = newf.Seek(int64(16+len(m.Data)), os.SEEK_SET)
