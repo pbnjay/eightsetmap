@@ -41,6 +41,12 @@ func (m *Map) Mutate(autosync bool) *MutableMap {
 	}
 }
 
+// SetOutputFilename tells this MutableMap to commit to a different filename. Use
+// the empty string "" to save to the default filename (the source Map's filename).
+func (m *MutableMap) SetOutputFilename(fn string) {
+	m.newFilename = fn
+}
+
 // Get returns a slice of values for the given key. If there is a newly
 // written, uncommitted key then it will be returned.
 func (m *MutableMap) Get(key uint64) ([]uint64, bool) {
@@ -354,8 +360,15 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		defer oldf.Close()
 	}
 
-	dir, base := filepath.Split(m.Map.filename)
-	newf, err := ioutil.TempFile(dir, base)
+	var newf *os.File
+	isTemp := true
+	if m.newFilename == "" {
+		dir, base := filepath.Split(m.Map.filename)
+		newf, err = ioutil.TempFile(dir, base)
+	} else {
+		isTemp = false
+		newf, err = os.Create(m.newFilename)
+	}
 	if err != nil {
 		return err
 	}
@@ -549,38 +562,40 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		return err
 	}
 
-	if oldf != nil {
-		err = os.Rename(m.filename, m.filename+".old")
+	if isTemp {
+		if oldf != nil {
+			err = os.Rename(m.filename, m.filename+".old")
+			if err != nil {
+				return err
+			}
+		}
+
+		err = os.Rename(tmpName, m.filename)
+		if err != nil {
+			start := time.Now()
+			var a, b *os.File
+			// i get a cross-device link error when i try to move across partitions
+			// so let's address that
+			a, err = os.Open(tmpName)
+			if err == nil {
+				b, err = os.Create(m.filename)
+				if err == nil {
+					_, err = io.Copy(b, a)
+					b.Close()
+				}
+				a.Close()
+			}
+			elap := time.Now().Sub(start)
+			log.Println("took", elap, "to copy across partitions")
+		}
 		if err != nil {
 			return err
 		}
-	}
-
-	err = os.Rename(tmpName, m.filename)
-	if err != nil {
-		start := time.Now()
-		var a, b *os.File
-		// i get a cross-device link error when i try to move across partitions
-		// so let's address that
-		a, err = os.Open(tmpName)
-		if err == nil {
-			b, err = os.Create(m.filename)
-			if err == nil {
-				_, err = io.Copy(b, a)
-				b.Close()
+		if oldf != nil {
+			err = os.Remove(m.filename + ".old")
+			if err != nil {
+				log.Println(err)
 			}
-			a.Close()
-		}
-		elap := time.Now().Sub(start)
-		log.Println("took", elap, "to copy across partitions")
-	}
-	if err != nil {
-		return err
-	}
-	if oldf != nil {
-		err = os.Remove(m.filename + ".old")
-		if err != nil {
-			log.Println(err)
 		}
 	}
 

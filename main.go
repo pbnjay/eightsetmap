@@ -51,6 +51,7 @@ type Map struct {
 // MutableMap represents a Map that can be written to.
 type MutableMap struct {
 	*Map
+	newFilename string
 
 	// not yet committed to disk
 	dirty   map[uint64][]uint64
