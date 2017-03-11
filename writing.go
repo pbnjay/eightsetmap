@@ -262,20 +262,20 @@ func (m *MutableMap) inplaceCommit() bool {
 // of padding bytes to leave after the set data (extraBytes).
 //
 // To maintain data alignment, it is recommended to make extraBytes a multiple of 8.
-type PackerFunc func(valsize uint32) (capval uint32, extraBytes uint32)
+type PackerFunc func(key uint64, valsize uint32) (capval uint32, extraBytes uint32)
 
 // ExtraFunc is a function that provides additional data for a key, which will be
 // placed directly after the key's set of values.
 type ExtraFunc func(key uint64) []byte
 
 // TightPacker does not reserve any extra space in the disk storage format.
-func TightPacker(valsize uint32) (capval uint32, pad uint32) {
+func TightPacker(key uint64, valsize uint32) (capval uint32, pad uint32) {
 	return valsize, 0
 }
 
 // DefaultPacker tells the serialization code to leave some padding in the file so that
 // minimal updates can be performed in-place.
-func DefaultPacker(valsize uint32) (capval uint32, pad uint32) {
+func DefaultPacker(key uint64, valsize uint32) (capval uint32, pad uint32) {
 	// leave extra room to grow
 	sz := valsize + (DefaultCapacity - FillFactor)
 	sz = DefaultCapacity * (1 + (sz / DefaultCapacity))
@@ -433,7 +433,7 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		if newvals, ok := m.dirty[k]; ok {
 			caplen = uint64(len(newvals))
 
-			sz, pad := packer(uint32(len(newvals)))
+			sz, pad := packer(k, uint32(len(newvals)))
 			caplen |= uint64(sz) << 32
 
 			err = binary.Write(w, binary.LittleEndian, caplen)
@@ -487,7 +487,7 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 		// truncate to values only
 		vals = vals[:uint32(caplen)]
 		caplen = uint64(len(vals))
-		sz, pad := packer(uint32(len(vals)))
+		sz, pad := packer(k, uint32(len(vals)))
 		caplen |= uint64(sz) << 32
 
 		//	copy caplen + values to new file
