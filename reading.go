@@ -114,3 +114,21 @@ func (m *Map) GetSize(key uint64) (uint32, bool) {
 	// downcast to get just length
 	return uint32(caplen), true
 }
+
+// GetCapacity gets the capacity reserved for the set of values for the given key
+func (m *Map) GetCapacity(key uint64) (uint32, bool) {
+	_, ok := m.seekToBackingPosition(key)
+	if !ok {
+		return 0, false
+	}
+
+	var caplen uint64
+	err := binary.Read(m.f, binary.LittleEndian, &caplen)
+	if err != nil {
+		log.Println(err)
+		return 0, false
+	}
+
+	// shift+downcast to get just capacity
+	return uint32(caplen >> 32), true
+}
