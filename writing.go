@@ -361,11 +361,9 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc, extra ExtraFunc) error 
 	}
 	defer newf.Close()
 
-	// if a shiftkey is in use, we have to scan the current file to copy values
-	// cause it's too big to fit into memory
+	// if a shiftkey is in use, we'd have to scan the current file for offsets
 	if m.shiftkey > 0 {
 		return fmt.Errorf("not implemented")
-		//return m.indirectCommit(oldf, newf, packed)
 	}
 
 	x := uint32(MAGIC)
