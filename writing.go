@@ -1,6 +1,7 @@
 package eightsetmap
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -254,8 +255,41 @@ func (m *MutableMap) inplaceCommit() bool {
 	return true
 }
 
+// PackerFunc is a function that tells the serialization code how to pack additional
+// space into the file. It takes the number of values in the set (valsize) and returns
+// the 'capacity' value (capval) to encode into the key's header, along with the number
+// of padding bytes to leave after the set data (extraBytes).
+//
+// To maintain data alignment, it is recommended to make extraBytes a multiple of 8.
+type PackerFunc func(valsize uint32) (capval uint32, extraBytes uint32)
+
+// TightPacker does not reserve any extra space in the disk storage format.
+func TightPacker(valsize uint32) (capval uint32, pad uint32) {
+	return valsize, 0
+}
+
+// DefaultPacker tells the serialization code to leave some padding in the file so that
+// minimal updates can be performed in-place.
+func DefaultPacker(valsize uint32) (capval uint32, pad uint32) {
+	// leave extra room to grow
+	sz := valsize + (DefaultCapacity - FillFactor)
+	sz = DefaultCapacity * (1 + (sz / DefaultCapacity))
+	if sz < valsize {
+		panic("size mismatch")
+	}
+	pad = sz - valsize
+
+	return sz, pad * 8
+}
+
 // Commit writes the changed entries to disk. If packed is true, then no empty room is left
 // for later expansion. The MutableMap can be immediately reused after a successful commit.
+//
+// If packed is false, then a much faster in-place commit is possible (using the additional
+// space reserved from the previous un-packed commit). If an in-place commit is not possible
+// then a standard full commit will be used.
+//
+// Note if autosync is enabled and there are no changes, nothing will be done.
 func (m *MutableMap) Commit(packed bool) error {
 	if m.autosync {
 		for k, mk := range m.mutkeys {
@@ -264,14 +298,38 @@ func (m *MutableMap) Commit(packed bool) error {
 			}
 			delete(m.mutkeys, k)
 		}
+		if len(m.dirty) == 0 {
+			// nothing to write!
+			return nil
+		}
 	}
-	if len(m.dirty) == 0 {
-		// nothing to write!
+
+	if packed {
+		return m.CommitWithPacker(TightPacker)
+	}
+
+	if m.inplaceCommit() {
 		return nil
 	}
 
-	if !packed {
-		if m.inplaceCommit() {
+	return m.CommitWithPacker(DefaultPacker)
+}
+
+// CommitWithPacker allows the usage of custom data embedded into the lookup table. Maps
+// saved using custom packers should not be modified unless you know what you are doing.
+//
+// Note if autosync is enabled and there are no changes, nothing will be done.
+func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
+	if m.autosync {
+		for k, mk := range m.mutkeys {
+			if !mk.synced {
+				mk.Sync()
+			}
+			delete(m.mutkeys, k)
+		}
+
+		if len(m.dirty) == 0 {
+			// nothing to write!
 			return nil
 		}
 	}
@@ -360,7 +418,6 @@ func (m *MutableMap) Commit(packed bool) error {
 	}
 
 	////////
-	padding := make([]uint64, 2*DefaultCapacity)
 	for _, k := range keys {
 		newoffsets[k], err = newf.Seek(0, os.SEEK_CUR)
 		if err != nil {
@@ -370,21 +427,10 @@ func (m *MutableMap) Commit(packed bool) error {
 		var caplen uint64
 		if newvals, ok := m.dirty[k]; ok {
 			caplen = uint64(len(newvals))
-			var pad uint32
 
-			if !packed {
-				// leave extra room to grow
-				sz := uint32(len(newvals)) + (DefaultCapacity - FillFactor)
-				sz = DefaultCapacity * (1 + (sz / DefaultCapacity))
-				if sz < uint32(len(newvals)) {
-					panic("size mismatch")
-				}
-				pad = sz - uint32(len(newvals))
+			sz, pad := packer(uint32(len(newvals)))
+			caplen |= uint64(sz) << 32
 
-				caplen |= uint64(sz) << 32
-			} else {
-				caplen |= caplen << 32
-			}
 			err = binary.Write(newf, binary.LittleEndian, caplen)
 			if err != nil {
 				return err
@@ -394,7 +440,7 @@ func (m *MutableMap) Commit(packed bool) error {
 				return err
 			}
 			if pad > 0 {
-				err = binary.Write(newf, binary.LittleEndian, padding[:pad])
+				_, err = newf.Write(bytes.Repeat([]byte{0}, int(pad)))
 				if err != nil {
 					return err
 				}
@@ -420,11 +466,11 @@ func (m *MutableMap) Commit(packed bool) error {
 			return err
 		}
 
-		if packed {
-			// repack if necessary
-			caplen = uint64(uint32(caplen)) | (caplen << 32)
-			vals = vals[:uint32(caplen)]
-		}
+		// truncate to values only
+		vals = vals[:uint32(caplen)]
+		caplen = uint64(len(vals))
+		sz, pad := packer(uint32(len(vals)))
+		caplen |= uint64(sz) << 32
 
 		//	copy caplen + values to new file
 		err = binary.Write(newf, binary.LittleEndian, caplen)
@@ -434,6 +480,12 @@ func (m *MutableMap) Commit(packed bool) error {
 		err = binary.Write(newf, binary.LittleEndian, vals)
 		if err != nil {
 			return err
+		}
+		if pad > 0 {
+			_, err = newf.Write(bytes.Repeat([]byte{0}, int(pad)))
+			if err != nil {
+				return err
+			}
 		}
 	}
 
