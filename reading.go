@@ -2,6 +2,7 @@ package eightsetmap
 
 import (
 	"encoding/binary"
+	"io"
 	"log"
 	"os"
 )
@@ -94,6 +95,45 @@ func (m *stdMap) getFromBacking(key uint64) ([]uint64, bool) {
 	}
 
 	m.cache.Add(key, vals)
+	return vals, true
+}
+
+// getWithExtraFromBacking gets the set of values from the backing file,
+// the 'extra' callback will be called with the number of 8-byte chunks
+// remaining and a reader to read from.
+//
+// Note that this func skips caching the key's value-set.
+func (m *stdMap) getWithExtraFromBacking(key uint64, extra func(n int, r io.Reader)) ([]uint64, bool) {
+	_, ok := m.seekToBackingPosition(key)
+	if !ok {
+		return nil, false
+	}
+
+	// 64bit int, upper 32bits capacity, lower 32bits length
+	var caplen uint64
+	err := binary.Read(m.f, binary.LittleEndian, &caplen)
+	if err != nil {
+		log.Println(err)
+		return nil, false
+	}
+
+	// shift+downcast to get capacity
+	total := uint32(caplen >> 32)
+	if total == 0 {
+		return []uint64{}, true
+	}
+	l := uint32(caplen)
+	vals := make([]uint64, l)
+
+	// NB m.f is open/valid due to seekToBackingPosition
+	err = binary.Read(m.f, binary.LittleEndian, &vals)
+	if err != nil {
+		log.Println(err)
+		return nil, false
+	}
+
+	extra(int(total-l), m.f)
+
 	return vals, true
 }
 

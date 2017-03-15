@@ -6,6 +6,7 @@ package eightsetmap
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/hashicorp/golang-lru"
@@ -168,6 +169,12 @@ func (m *stdMap) GetSet(key uint64) (map[uint64]struct{}, bool) {
 		v[val] = struct{}{}
 	}
 	return v, true
+}
+
+// GetWithExtra returns a slice of values for the given key, and calls the "extra" func
+// for any additional data stored within the lookup table.
+func (m *stdMap) GetWithExtra(key uint64, extra func(n int, r io.Reader)) ([]uint64, bool) {
+	return m.getWithExtraFromBacking(key, extra)
 }
 
 // EachKey calls eachFunc for every key in the map until a non-nil error is returned.
