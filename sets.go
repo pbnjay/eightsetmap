@@ -5,7 +5,7 @@ import "sort"
 // MultiUnion returns the set of unique values associated to any of the given keys.
 //
 // NB this implementation is not fully optimized yet
-func (m *Map) MultiUnion(keys ...uint64) []uint64 {
+func MultiUnion(m Map, keys ...uint64) []uint64 {
 	vv := getSets(m, keys)
 	if len(vv) == 0 {
 		return []uint64{}
@@ -26,7 +26,7 @@ func (m *Map) MultiUnion(keys ...uint64) []uint64 {
 // Note that if any keys are missing, or any pair has no intersection then the result is empty.
 //
 // NB this implementation is not fully optimized yet
-func (m *Map) MultiIntersect(keys ...uint64) []uint64 {
+func MultiIntersect(m Map, keys ...uint64) []uint64 {
 	if len(keys) == 0 {
 		return []uint64{}
 	}
@@ -51,7 +51,7 @@ func (m *Map) MultiIntersect(keys ...uint64) []uint64 {
 }
 
 // Union returns the set of unique values associated to either k1 or k2.
-func (m *Map) Union(k1, k2 uint64) []uint64 {
+func Union(m Map, k1, k2 uint64) []uint64 {
 	v1, ok := m.Get(k1)
 	if !ok {
 		// no k1, just return k2
@@ -69,7 +69,7 @@ func (m *Map) Union(k1, k2 uint64) []uint64 {
 }
 
 // Intersect returns the set of values associated to both k1 and k2.
-func (m *Map) Intersect(k1, k2 uint64) []uint64 {
+func Intersect(m Map, k1, k2 uint64) []uint64 {
 	v1, ok := m.Get(k1)
 	if !ok {
 		// no k1, just return empty
@@ -86,7 +86,7 @@ func (m *Map) Intersect(k1, k2 uint64) []uint64 {
 }
 
 // Difference returns the set of values for k1 after removing any values also found in k2's set.
-func (m *Map) Difference(k1, k2 uint64) []uint64 {
+func Difference(m Map, k1, k2 uint64) []uint64 {
 	v1, ok := m.Get(k1)
 	if !ok {
 		// no k1, just return empty
@@ -127,7 +127,7 @@ func (m *Map) Difference(k1, k2 uint64) []uint64 {
 
 //////////
 
-func getSets(m *Map, keys []uint64) [][]uint64 {
+func getSets(m Map, keys []uint64) [][]uint64 {
 	vv := make([][]uint64, 0, len(keys))
 	for _, k := range keys {
 		v, ok := m.Get(k)

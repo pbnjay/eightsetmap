@@ -7,7 +7,7 @@ import (
 )
 
 // seekToBackingPosition moves to the position in the backing file for the key
-func (m *Map) seekToBackingPosition(key uint64) (int64, bool) {
+func (m *stdMap) seekToBackingPosition(key uint64) (int64, bool) {
 	var err error
 	if m.f == nil {
 		m.f, err = os.Open(m.filename)
@@ -65,7 +65,7 @@ func (m *Map) seekToBackingPosition(key uint64) (int64, bool) {
 }
 
 // getFromBacking gets the set of values from the backing file
-func (m *Map) getFromBacking(key uint64) ([]uint64, bool) {
+func (m *stdMap) getFromBacking(key uint64) ([]uint64, bool) {
 	_, ok := m.seekToBackingPosition(key)
 	if !ok {
 		return nil, false
@@ -98,7 +98,7 @@ func (m *Map) getFromBacking(key uint64) ([]uint64, bool) {
 }
 
 // GetSize gets the size of the set of values for the given key
-func (m *Map) GetSize(key uint64) (uint32, bool) {
+func (m *stdMap) GetSize(key uint64) (uint32, bool) {
 	_, ok := m.seekToBackingPosition(key)
 	if !ok {
 		return 0, false
@@ -116,7 +116,7 @@ func (m *Map) GetSize(key uint64) (uint32, bool) {
 }
 
 // GetCapacity gets the capacity reserved for the set of values for the given key
-func (m *Map) GetCapacity(key uint64) (uint32, bool) {
+func (m *stdMap) GetCapacity(key uint64) (uint32, bool) {
 	_, ok := m.seekToBackingPosition(key)
 	if !ok {
 		return 0, false

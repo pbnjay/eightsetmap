@@ -23,7 +23,7 @@ func TestSimple(t *testing.T) {
 		}
 	}
 
-	mm := m.Mutate(false)
+	mm := Mutate(m, false)
 	mk := mm.OpenKey(1)
 	mk.Put(10)
 	mk.Sync()
@@ -122,7 +122,7 @@ func TestSimple(t *testing.T) {
 func TestFibo(t *testing.T) {
 	os.Remove("fibo_testing.8sm")
 	m := New("fibo_testing.8sm")
-	mm := m.Mutate(false)
+	mm := Mutate(m, false)
 
 	fibs := []uint64{
 		0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765,
@@ -178,7 +178,7 @@ func TestFibo(t *testing.T) {
 	}
 	sz := info.Size()
 
-	m.Data = []byte("this is a random comment embedded in the file")
+	m.(*stdMap).Data = []byte("this is a random comment embedded in the file")
 	err = mm.Commit(true)
 	if err != nil {
 		log.Println(err)
@@ -195,7 +195,7 @@ func TestFibo(t *testing.T) {
 		t.Fatalf("packed file is %d bytes, but unpacked file is %d bytes", szPacked, sz)
 	}
 	//////////////
-	mm = m.Mutate(false)
+	mm = Mutate(m, false)
 
 	fibs2 := []uint64{
 		4, 6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 3400, 5500, 8900, 144000, 2330000,
@@ -267,7 +267,7 @@ func TestFibo(t *testing.T) {
 
 	////////////////
 	m2 := NewShifted("fibo_testing.8sm", 3)
-	if len(m2.Data) == 0 {
+	if len(m2.(*stdMap).Data) == 0 {
 		t.Fatal("embedded comment not preserved")
 	}
 	for _, f := range fibs {
@@ -300,7 +300,7 @@ func TestFibo(t *testing.T) {
 func TestInplace(t *testing.T) {
 	os.Remove("inplace_testing.8sm")
 	m := New("inplace_testing.8sm")
-	mm := m.Mutate(false)
+	mm := Mutate(m, false)
 
 	justUnder := int(FillFactor) - 1
 	mk1 := mm.OpenKey(42)
@@ -348,7 +348,7 @@ func TestInplace(t *testing.T) {
 	/////////
 	// open a new instance and add 3 values. filesize should stay the same
 	m = New("inplace_testing.8sm")
-	mm = m.Mutate(false)
+	mm = Mutate(m, false)
 
 	toadd := 1 + int(DefaultCapacity-FillFactor)/2
 	mk1 = mm.OpenKey(42)
@@ -416,7 +416,7 @@ func TestInplace(t *testing.T) {
 	/////////
 	// open a new instance and remove 3 values. filesize should stay the same
 	m = New("inplace_testing.8sm")
-	mm = m.Mutate(false)
+	mm = Mutate(m, false)
 
 	mk2 = mm.OpenKey(43)
 	mk3 = mm.OpenKey(44)
@@ -479,7 +479,7 @@ func TestInplace(t *testing.T) {
 	//////////
 	// open a new instance and add a lot of values. filesize should grow
 	m = New("inplace_testing.8sm")
-	mm = m.Mutate(false)
+	mm = Mutate(m, false)
 
 	mk4 = mm.OpenKey(45)
 	for i := 0; i < 99*int(DefaultCapacity); i++ {

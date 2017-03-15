@@ -31,9 +31,14 @@ var (
 // If autosync is true, then mutated keys are automatically Sync()ed when
 // Commit is called. If false, then you must Sync() mutated keys manually to
 // pull them into a Commit.
-func (m *Map) Mutate(autosync bool) *MutableMap {
+func Mutate(m Map, autosync bool) *MutableMap {
+	sm, ok := m.(*stdMap)
+	if !ok {
+		log.Println("cannot mutate this map")
+		return nil
+	}
 	return &MutableMap{
-		Map:   m,
+		Map:   sm,
 		dirty: make(map[uint64][]uint64),
 
 		mutkeys:  make(map[uint64]*MutableKey),
@@ -189,12 +194,12 @@ func (k *MutableKey) RemoveSlice(vals []uint64) {
 // whole file. It returns true on success.
 func (m *MutableMap) inplaceCommit() bool {
 	for key, vals := range m.dirty {
-		if _, ok := m.seekToBackingPosition(key); !ok {
+		if _, ok := m.Map.seekToBackingPosition(key); !ok {
 			return false
 		}
 
 		var caplen uint64
-		err := binary.Read(m.f, binary.LittleEndian, &caplen)
+		err := binary.Read(m.Map.f, binary.LittleEndian, &caplen)
 		if err != nil {
 			log.Println(err)
 			return false
@@ -207,26 +212,26 @@ func (m *MutableMap) inplaceCommit() bool {
 		}
 	}
 	// passed checks, we can update in-place!
-	m.f.Close()
-	m.f = nil
+	m.Map.f.Close()
+	m.Map.f = nil
 
-	f, err := os.OpenFile(m.filename, os.O_RDWR, 0644)
+	f, err := os.OpenFile(m.Map.filename, os.O_RDWR, 0644)
 	if err != nil {
 		return false
 	}
-	m.f = f
+	m.Map.f = f
 	defer func() {
-		m.f.Close()
-		m.f = nil
+		m.Map.f.Close()
+		m.Map.f = nil
 	}()
 
 	for key, vals := range m.dirty {
-		if _, ok := m.seekToBackingPosition(key); !ok {
+		if _, ok := m.Map.seekToBackingPosition(key); !ok {
 			return false
 		}
 
 		var caplen uint64
-		err := binary.Read(m.f, binary.LittleEndian, &caplen)
+		err := binary.Read(m.Map.f, binary.LittleEndian, &caplen)
 		if err != nil {
 			log.Println(err)
 			return false
@@ -235,20 +240,20 @@ func (m *MutableMap) inplaceCommit() bool {
 		c := uint32(caplen >> 32)
 		l := uint32(caplen)
 		if l != uint32(len(vals)) {
-			_, err = m.f.Seek(-8, os.SEEK_CUR)
+			_, err = m.Map.f.Seek(-8, os.SEEK_CUR)
 			if err != nil {
 				log.Println(err)
 				return false
 			}
 			caplen = uint64(c)<<32 | uint64(len(vals))
-			err := binary.Write(m.f, binary.LittleEndian, caplen)
+			err := binary.Write(m.Map.f, binary.LittleEndian, caplen)
 			if err != nil {
 				log.Println(err)
 				return false
 			}
 		}
 
-		err = binary.Write(m.f, binary.LittleEndian, vals)
+		err = binary.Write(m.Map.f, binary.LittleEndian, vals)
 		if err != nil {
 			log.Println(err)
 			return false
@@ -256,7 +261,7 @@ func (m *MutableMap) inplaceCommit() bool {
 	}
 	// if we got here without failing then all was ok!
 	for key, vals := range m.dirty {
-		m.cache.Add(key, vals)
+		m.Map.cache.Add(key, vals)
 		delete(m.dirty, key)
 	}
 	return true
@@ -341,9 +346,9 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 		}
 	}
 
-	if m.f != nil {
-		m.f.Close()
-		m.f = nil
+	if m.Map.f != nil {
+		m.Map.f.Close()
+		m.Map.f = nil
 	}
 
 	oldf, err := os.Open(m.Map.filename)
@@ -371,7 +376,7 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 	defer newf.Close()
 
 	// if a shiftkey is in use, we'd have to scan the current file for offsets
-	if m.shiftkey > 0 {
+	if m.Map.shiftkey > 0 {
 		return fmt.Errorf("not implemented")
 	}
 
@@ -381,21 +386,21 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 		return err
 	}
 	// overflow is possible, but if it happens WTF
-	x = uint32(len(m.Data))
+	x = uint32(len(m.Map.Data))
 	err = binary.Write(newf, binary.LittleEndian, x)
 	if err != nil {
 		return err
 	}
 	if x != 0 {
-		_, err = newf.Write(m.Data)
+		_, err = newf.Write(m.Map.Data)
 		if err != nil {
 			return err
 		}
 	}
 
 	/////
-	keys := make([]uint64, 0, len(m.offsets)+len(m.dirty))
-	for k := range m.offsets {
+	keys := make([]uint64, 0, len(m.Map.offsets)+len(m.dirty))
+	for k := range m.Map.offsets {
 		keys = append(keys, k)
 	}
 	for k := range m.dirty {
@@ -462,7 +467,7 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 			continue
 		}
 
-		_, err = oldf.Seek(m.offsets[k], os.SEEK_SET)
+		_, err = oldf.Seek(m.Map.offsets[k], os.SEEK_SET)
 		if err != nil {
 			return err
 		}
@@ -507,7 +512,7 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 	w.Flush()
 
 	// jump back to the top offset table
-	_, err = newf.Seek(int64(16+len(m.Data)), os.SEEK_SET)
+	_, err = newf.Seek(int64(16+len(m.Map.Data)), os.SEEK_SET)
 	if err != nil {
 		return err
 	}
@@ -536,13 +541,13 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 
 	if isTemp {
 		if oldf != nil {
-			err = os.Rename(m.filename, m.filename+".old")
+			err = os.Rename(m.Map.filename, m.Map.filename+".old")
 			if err != nil {
 				return err
 			}
 		}
 
-		err = os.Rename(tmpName, m.filename)
+		err = os.Rename(tmpName, m.Map.filename)
 		if err != nil {
 			start := time.Now()
 			var a, b *os.File
@@ -550,7 +555,7 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 			// so let's address that
 			a, err = os.Open(tmpName)
 			if err == nil {
-				b, err = os.Create(m.filename)
+				b, err = os.Create(m.Map.filename)
 				if err == nil {
 					_, err = io.Copy(b, a)
 					b.Close()
@@ -564,7 +569,7 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 			return err
 		}
 		if oldf != nil {
-			err = os.Remove(m.filename + ".old")
+			err = os.Remove(m.Map.filename + ".old")
 			if err != nil {
 				log.Println(err)
 			}
@@ -573,11 +578,11 @@ func (m *MutableMap) CommitWithPacker(packer PackerFunc) error {
 
 	// move new data into m.Map so it can be used immediately,
 	// and clear out dirty list to be reused...
-	m.offsets = newoffsets
+	m.Map.offsets = newoffsets
 	for k, v := range m.dirty {
-		m.cache.Add(k, v)
+		m.Map.cache.Add(k, v)
 		delete(m.dirty, k)
 	}
-	m.start = 16 + len(m.Data)
+	m.Map.start = 16 + len(m.Map.Data)
 	return nil
 }

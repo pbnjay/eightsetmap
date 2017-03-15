@@ -32,7 +32,7 @@ var (
 ////////
 
 // Map represents a out-of-core map from uint64 keys to sets of uint64 values.
-type Map struct {
+type stdMap struct {
 	filename string
 	f        *os.File // readonly file
 	start    int      // lookup table start offset
@@ -50,7 +50,7 @@ type Map struct {
 
 // MutableMap represents a Map that can be written to.
 type MutableMap struct {
-	*Map
+	Map         *stdMap
 	newFilename string
 
 	// not yet committed to disk
@@ -62,14 +62,14 @@ type MutableMap struct {
 }
 
 // New returns a new Map backed by the (possibly empty) data in filename.
-func New(filename string) *Map {
+func New(filename string) Map {
 	return NewShifted(filename, 0)
 }
 
 // NewShifted returns a Map with shifting enabled to reduce core memory usage.
 // A shift is a power of 2 factor, so shift=1 means that memory usage is
 // approximately cut in half, but that lookups will take additional disk seeks.
-func NewShifted(filename string, shift uint64) *Map {
+func NewShifted(filename string, shift uint64) Map {
 	var cdata []byte
 	offs := make(map[uint64]int64)
 	f, err := os.Open(filename)
@@ -137,7 +137,7 @@ func NewShifted(filename string, shift uint64) *Map {
 	}
 
 	c, _ := lru.New(DefaultCacheSize) // err always nil
-	return &Map{
+	return &stdMap{
 		filename: filename,
 		start:    16 + len(cdata),
 		offsets:  offs,
@@ -149,7 +149,7 @@ func NewShifted(filename string, shift uint64) *Map {
 }
 
 // Get returns a slice of values for the given key.
-func (m *Map) Get(key uint64) ([]uint64, bool) {
+func (m *stdMap) Get(key uint64) ([]uint64, bool) {
 	if val, ok := m.cache.Get(key); ok {
 		v, ok := val.([]uint64)
 		return v, ok
@@ -158,7 +158,7 @@ func (m *Map) Get(key uint64) ([]uint64, bool) {
 }
 
 // GetSet returns a set of values for the given key.
-func (m *Map) GetSet(key uint64) (map[uint64]struct{}, bool) {
+func (m *stdMap) GetSet(key uint64) (map[uint64]struct{}, bool) {
 	vals, ok := m.Get(key)
 	if !ok {
 		return nil, false
@@ -171,7 +171,7 @@ func (m *Map) GetSet(key uint64) (map[uint64]struct{}, bool) {
 }
 
 // EachKey calls eachFunc for every key in the map until a non-nil error is returned.
-func (m *Map) EachKey(eachFunc func(uint64) error) error {
+func (m *stdMap) EachKey(eachFunc func(uint64) error) error {
 	if m.shiftkey > 0 {
 		return fmt.Errorf("not yet implemented")
 	}
