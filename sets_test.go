@@ -32,7 +32,7 @@ func TestSets(t *testing.T) {
 		}
 		for i, x := range rs {
 			if x != ex[i] {
-				t.Fatalf("%s. got result[%d]=%d, expected %d", i, x, ex[i])
+				t.Fatalf("  got result[%d]=%d, expected %d", i, x, ex[i])
 			}
 		}
 	}
